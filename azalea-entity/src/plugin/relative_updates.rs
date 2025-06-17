@@ -21,7 +21,7 @@ use azalea_world::{MinecraftEntityId, PartialInstance};
 use bevy_ecs::prelude::*;
 use derive_more::{Deref, DerefMut};
 use parking_lot::RwLock;
-use tracing::warn;
+use tracing::{error, warn};
 
 use crate::LocalEntity;
 
@@ -72,7 +72,12 @@ impl EntityCommand for RelativeEntityUpdate {
             return;
         };
 
-        let entity_id = *entity.get::<MinecraftEntityId>().unwrap();
+        let entity_id = if let Some(entity_id) = entity.get::<MinecraftEntityId>() {
+            *entity_id
+        }else {
+            error!("Can't process relative update because entity has no id, yet!");
+            return;
+        };
         if entity.contains::<LocalEntity>() {
             // a client tried to update another client, which isn't allowed
             return;
