@@ -87,6 +87,14 @@ impl ItemStack {
             ItemStack::Present(i) => Some(i),
         }
     }
+
+    /// Backported from https://github.com/azalea-rs/azalea/blob/e7bf124ed5e0b8a9490e9d96692480633e02f467/azalea-inventory/src/slot.rs#L91C1-L96C6
+    pub fn as_present_mut(&mut self) -> Option<&mut ItemStackData> {
+        match self {
+            ItemStack::Empty => None,
+            ItemStack::Present(i) => Some(i),
+        }
+    }
 }
 
 /// An item in an inventory, with a count and NBT. Usually you want
@@ -169,6 +177,17 @@ impl AzaleaWrite for ItemStack {
             }
         };
         Ok(())
+    }
+}
+
+/// Copied from https://github.com/azalea-rs/azalea/blob/e7bf124ed5e0b8a9490e9d96692480633e02f467/azalea-inventory/src/slot.rs#L182C1-L190C2
+impl From<ItemStackData> for ItemStack {
+    fn from(item: ItemStackData) -> Self {
+        if item.is_empty() {
+            ItemStack::Empty
+        } else {
+            ItemStack::Present(item)
+        }
     }
 }
 

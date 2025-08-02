@@ -620,6 +620,19 @@ impl Menu {
         true
     }
 
+    /// Copied from https://github.com/azalea-rs/azalea/blob/e7bf124ed5e0b8a9490e9d96692480633e02f467/azalea-inventory/src/operations.rs#L626-L636
+    /// Whether the item in the slot can be picked up and placed.
+    pub fn allow_modification(&self, target_slot_index: usize) -> bool {
+        if !self.may_pickup(target_slot_index) {
+            return false;
+        }
+        let item = self.slot(target_slot_index).unwrap();
+        // the default here probably doesn't matter since we should only be calling this
+        // if we already checked that the slot isn't empty
+        item.as_present()
+            .is_some_and(|item| self.may_place(target_slot_index, item))
+    }
+
     /// Get the maximum number of items that can be placed in this slot.
     pub fn max_stack_size(&self, _target_slot_index: usize) -> u32 {
         64
