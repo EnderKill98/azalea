@@ -41,7 +41,13 @@ pub struct RawConnectionReader {
 }
 #[derive(Clone)]
 pub struct RawConnectionWriter {
-    pub outgoing_packets_sender: mpsc::UnboundedSender<Box<[u8]>>,
+    pub outgoing_packets_sender: mpsc::UnboundedSender<OutgoingPackets>,
+}
+
+#[derive(Debug)]
+pub enum OutgoingPackets {
+    Single(Box<[u8]>),
+    Batch(Vec<Box<[u8]>>),
 }
 
 #[derive(Error, Debug)]
@@ -57,7 +63,7 @@ pub enum WritePacketError {
     SendError {
         #[from]
         #[backtrace]
-        source: SendError<Box<[u8]>>,
+        source: SendError<OutgoingPackets>,
     },
 }
 
@@ -97,7 +103,22 @@ impl RawConnection {
     }
 
     pub fn write_raw_packet(&self, raw_packet: Box<[u8]>) -> Result<(), WritePacketError> {
-        self.writer.outgoing_packets_sender.send(raw_packet)?;
+        self.writer
+            .outgoing_packets_sender
+            .send(OutgoingPackets::Single(raw_packet))?;
+        Ok(())
+    }
+
+    pub fn write_raw_packet_batch(
+        &self,
+        raw_packets: Vec<Box<[u8]>>,
+    ) -> Result<(), WritePacketError> {
+        if raw_packets.is_empty() {
+            return Ok(());
+        }
+        self.writer
+            .outgoing_packets_sender
+            .send(OutgoingPackets::Batch(raw_packets))?;
         Ok(())
     }
 
@@ -116,6 +137,19 @@ impl RawConnection {
         self.write_raw_packet(raw_packet)?;
 
         Ok(())
+    }
+
+    /// Serialize and enqueue a packet batch as one indivisible writer-queue
+    /// item. The writer emits the complete batch with one socket write.
+    pub fn write_packet_batch<P: ProtocolPacket + Debug>(
+        &self,
+        packets: impl IntoIterator<Item = P>,
+    ) -> Result<(), WritePacketError> {
+        let raw_packets = packets
+            .into_iter()
+            .map(|packet| serialize_packet(&packet))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.write_raw_packet_batch(raw_packets)
     }
 
     /// Returns whether the connection is still alive.
@@ -187,10 +221,14 @@ impl RawConnectionWriter {
     pub async fn write_task(
         self,
         mut write_conn: RawWriteConnection,
-        mut outgoing_packets_receiver: mpsc::UnboundedReceiver<Box<[u8]>>,
+        mut outgoing_packets_receiver: mpsc::UnboundedReceiver<OutgoingPackets>,
     ) {
-        while let Some(raw_packet) = outgoing_packets_receiver.recv().await {
-            if let Err(err) = write_conn.write(&raw_packet).await {
+        while let Some(outgoing_packets) = outgoing_packets_receiver.recv().await {
+            let result = match outgoing_packets {
+                OutgoingPackets::Single(raw_packet) => write_conn.write(&raw_packet).await,
+                OutgoingPackets::Batch(raw_packets) => write_conn.write_batch(&raw_packets).await,
+            };
+            if let Err(err) = result {
                 error!("Disconnecting because we couldn't write a packet: {err}.");
                 break;
             };

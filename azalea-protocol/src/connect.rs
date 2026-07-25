@@ -23,7 +23,7 @@ use crate::packets::login::c_hello::ClientboundHello;
 use crate::packets::login::{ClientboundLoginPacket, ServerboundLoginPacket};
 use crate::packets::status::{ClientboundStatusPacket, ServerboundStatusPacket};
 use crate::read::{ReadPacketError, deserialize_packet, read_raw_packet, try_read_raw_packet};
-use crate::write::{serialize_packet, write_raw_packet};
+use crate::write::{prepare_raw_packet, serialize_packet, write_raw_packet};
 
 pub struct RawReadConnection {
     pub read_stream: OwnedReadHalf,
@@ -165,6 +165,31 @@ impl RawWriteConnection {
         .await
         {
             // detect broken pipe
+            if e.kind() == io::ErrorKind::BrokenPipe {
+                info!("Broken pipe, shutting down connection.");
+                if let Err(e) = self.shutdown().await {
+                    error!("Couldn't shut down: {}", e);
+                }
+            }
+            return Err(e);
+        }
+        Ok(())
+    }
+
+    /// Write multiple already serialized Minecraft packets with one socket
+    /// write. Every item is still compressed, framed, and encrypted as its own
+    /// protocol packet.
+    pub async fn write_batch(&mut self, packets: &[Box<[u8]>]) -> io::Result<()> {
+        let mut batch = Vec::new();
+        for packet in packets {
+            let prepared =
+                prepare_raw_packet(packet, self.compression_threshold, &mut self.enc_cipher)?;
+            batch.extend_from_slice(&prepared);
+        }
+        if batch.is_empty() {
+            return Ok(());
+        }
+        if let Err(e) = self.write_stream.write_all(&batch).await {
             if e.kind() == io::ErrorKind::BrokenPipe {
                 info!("Broken pipe, shutting down connection.");
                 if let Err(e) = self.shutdown().await {

@@ -55,6 +55,20 @@ where
     W: AsyncWrite + Unpin + Send,
 {
     trace!("Writing raw packet: {raw_packet:?}");
+    let raw_packet = prepare_raw_packet(raw_packet, compression_threshold, cipher)?;
+    stream.write_all(&raw_packet).await
+}
+
+/// Apply Minecraft compression, framing, and encryption to an already
+/// serialized packet without writing it to a stream.
+///
+/// This is useful for preparing several packets and emitting them with one
+/// socket write while preserving a separate Minecraft frame for each packet.
+pub fn prepare_raw_packet(
+    raw_packet: &[u8],
+    compression_threshold: Option<u32>,
+    cipher: &mut Option<Aes128CfbEnc>,
+) -> io::Result<Vec<u8>> {
     let mut raw_packet = raw_packet.to_vec();
     if let Some(threshold) = compression_threshold {
         raw_packet = compression_encoder(&raw_packet, threshold).unwrap();
@@ -64,7 +78,7 @@ where
     if let Some(cipher) = cipher {
         azalea_crypto::encrypt_packet(cipher, &mut raw_packet);
     }
-    stream.write_all(&raw_packet).await
+    Ok(raw_packet)
 }
 
 pub fn compression_encoder(
