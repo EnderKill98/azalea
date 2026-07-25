@@ -8,10 +8,10 @@ use azalea_core::{
     position::{ChunkPos, Vec3},
 };
 use azalea_entity::{
+    indexing::{EntityIdIndex, EntityUuidIndex},
+    metadata::{apply_metadata, Health},
     Dead, EntityBundle, EntityKind, LastSentPosition, LoadedBy, LocalEntity, LookDirection,
     Physics, Position, RelativeEntityUpdate,
-    indexing::{EntityIdIndex, EntityUuidIndex},
-    metadata::{Health, apply_metadata},
 };
 use azalea_protocol::packets::game::*;
 use azalea_world::{InstanceContainer, InstanceName, MinecraftEntityId, PartialInstance};
@@ -20,7 +20,6 @@ pub use events::*;
 use tracing::{debug, error, trace, warn};
 
 use crate::{
-    ClientInformation, PlayerInfo,
     chat::{ChatPacket, ChatReceivedEvent},
     chunks, declare_packet_handlers,
     disconnect::DisconnectEvent,
@@ -33,6 +32,7 @@ use crate::{
     movement::{KnockbackEvent, KnockbackType},
     packet::as_system,
     raw_connection::RawConnection,
+    ClientInformation, PlayerInfo,
 };
 
 pub fn process_packet_events(ecs: &mut World) {
@@ -444,7 +444,11 @@ impl GamePacketHandler<'_> {
             **last_sent_position = **position;
 
             fn apply_change<T: Add<Output = T>>(base: T, condition: bool, change: T) -> T {
-                if condition { base + change } else { change }
+                if condition {
+                    base + change
+                } else {
+                    change
+                }
             }
 
             let new_x = apply_change(position.x, p.relative.x, p.change.pos.x);
@@ -1048,10 +1052,7 @@ impl GamePacketHandler<'_> {
                     entity: self.player,
                     id: p.id,
                 });
-                commands.trigger(SendPacketEvent::new(
-                    self.player,
-                    ServerboundKeepAlive { id: p.id },
-                ));
+                // Response was here
             },
         );
     }
